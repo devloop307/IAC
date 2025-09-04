@@ -70,7 +70,7 @@ terraform destroy
 
 | Servicio | Puerto | Justificación |
 |----------|--------|---------------|
-| **Nginx** | 8080, 8081, 8082+ | Usamos el puerto 8080 en Nginx por ser la alternativa estándar al 80 y evitar conflictos.. |
+| **Nginx** | 8080, 8081, 8082 | El puerto 8080 se utiliza frecuentemente como alternativa al puerto 80 en servidores web y de aplicaciones, incluyendo instancias de NGINX. Esta práctica permite evitar conflictos con el puerto HTTP predeterminado (80), que puede estar ocupado por otros servicios o reservado para otra instancia en el host. |
 | **PostgreSQL** | 5432 | Puerto estándar de PostgreSQL. |
 | **Redis** | 6379 | Puerto por defecto de Redis. |
 | **Grafana** | 3000 | Puerto por defecto de Grafana. |
@@ -84,6 +84,10 @@ terraform destroy
 ### 1. Configuración de Redes
 - **Problema:** Contenedores no se comunicaban entre capas
 - **Solución:** Definir redes separadas (`app_net`, `persistence_net`, `monitor_net`)
+
+### 2. Subida de terraform.tfvars
+- **Problema:** Por buenas prácticas, terraform.tfvars no se debe subir al repositorio porque contiene variables sensibles (credenciales, passwords)
+- **Solución:** El docente nos indicó subirlo como ejemplo para fines académicos y evaluación del proyecto
 
 ## 🌐 Acceso a Servicios
 
