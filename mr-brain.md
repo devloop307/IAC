@@ -3,6 +3,14 @@
 Clasificador **binario (sí/no)** para detección de tumores cerebrales en imágenes **MRI** con explicación visual usando **Grad-CAM**.  
 Aplicación web construida con **Streamlit** y modelo **PyTorch (ResNet18)** preentrenado.
 
+---
+
+## 🚀 Tecnologías Utilizadas
+
+![Python](https://img.shields.io/badge/Python-3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+![Render](https://img.shields.io/badge/Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/15giXohyUo7ck9FjbVnmwcqPvXOPSuK2l?usp=sharing)
 
 ---
@@ -13,7 +21,10 @@ Aplicación web construida con **Streamlit** y modelo **PyTorch (ResNet18)** pre
 .
 ├── .streamlit/           # Carpeta de configuración de Streamlit
 │   └── config.toml      # Configuración de tema y servidor
-├── assets/              # Recursos multimedia (capturas, ejemplos)
+├── assets/              # Recursos multimedia
+│   ├── capturas/        # Screenshots de la aplicación
+│   ├── graficos/        # Gráficos de entrenamiento (loss, ROC, PR)
+│   └── ejemplos/        # Imágenes de prueba (positivas/negativas)
 ├── LICENSE              # Licencia Apache 2.0
 ├── Procfile            # Definición de proceso para despliegue (Render)
 ├── README.md           # Este archivo
@@ -33,6 +44,50 @@ Aplicación web construida con **Streamlit** y modelo **PyTorch (ResNet18)** pre
 3. El modelo **infiere** `prob_yes` (probabilidad de presencia de tumor).
 4. Se compara contra un **umbral** (por defecto: *recall_priority* de `best_threshold.json`).
 5. Si la predicción es **SÍ**, genera una visualización **Grad-CAM** + **caja delimitadora** para resaltar la región de mayor atención.
+
+---
+
+## 📸 Ejemplos Visuales
+
+### Interfaz de la Aplicación
+![Captura de predicción positiva](assets/capturas/prediccion_si.png)
+*Ejemplo de detección positiva con visualización Grad-CAM*
+
+![Captura de predicción negativa](assets/capturas/prediccion_no.png)
+*Ejemplo de predicción negativa (sin tumor detectado)*
+
+### Métricas de Entrenamiento
+
+<p align="center">
+  <img src="assets/graficos/loss_curve.png" width="400" alt="Curva de pérdida">
+  <img src="assets/graficos/roc_curve.png" width="400" alt="Curva ROC">
+</p>
+
+<p align="center">
+  <img src="assets/graficos/precision_recall.png" width="400" alt="Curva Precisión-Recall">
+</p>
+
+### Ejemplos de Predicción
+
+| Tumor Detectado | Sin Tumor |
+|----------------|-----------|
+| ![Ejemplo tumor](assets/ejemplos/tumor_ejemplo1.jpg) | ![Ejemplo normal](assets/ejemplos/no_tumor_ejemplo.jpg) |
+
+---
+
+## 📓 Notebook de Entrenamiento en Google Colab
+
+Explora el proceso completo de entrenamiento del modelo, desde el preprocesamiento de datos hasta la evaluación de métricas:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/15giXohyUo7ck9FjbVnmwcqPvXOPSuK2l?usp=sharing)
+
+**Contenido del notebook:**
+- 📊 Análisis exploratorio del dataset
+- 🔧 Preprocesamiento y augmentación de imágenes
+- 🏗️ Arquitectura del modelo ResNet18
+- 📈 Entrenamiento con métricas (ROC-AUC, F1-Score, Recall)
+- 🎯 Calibración de umbrales de decisión
+- 🔥 Generación de mapas Grad-CAM para explicabilidad
 
 ---
 
