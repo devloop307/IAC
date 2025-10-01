@@ -1,716 +1,698 @@
-# 🏗️ Infraestructura Enterprise On-Premise
-## Sistema de Gestión Centralizado con Alta Disponibilidad
+# 📦 Sistema de Inventario Distribuido - Bravo SAC
 
-[![Universidad](https://img.shields.io/badge/Universidad-UPAO-blue.svg)](https://www.upao.edu.pe/)
-[![Curso](https://img.shields.io/badge/Curso-Infraestructura%20como%20Código-green.svg)]()
-[![Estado](https://img.shields.io/badge/Estado-Producción-success.svg)]()
-[![IaC](https://img.shields.io/badge/IaC-Terraform%20%2B%20Ansible-purple.svg)]()
+## 📋 Contexto y Problemática
 
----
+### ¿Qué es Bravo SAC?
 
-## 📊 Executive Summary
+**Bravo SAC** es una empresa distribuidora de consumos y bienes que enfrenta desafíos críticos en su operación diaria:
 
-**El Problema:** Las operaciones actuales carecen de una infraestructura centralizada que registre ventas e inventario en tiempo real. Esto genera inconsistencias de datos, duplicidades y pérdida crítica de trazabilidad cuando múltiples usuarios operan simultáneamente en la red local. Sin integración ordenada de periféricos ni monitoreo unificado, detectar fallas y recuperarse a tiempo se convierte en una tarea reactiva y costosa.
+#### Problemas Identificados
 
-**La Solución:** Infraestructura empresarial 100% on-premise, completamente automatizada mediante Infrastructure as Code (IaC), que centraliza operaciones, garantiza consistencia transaccional y proporciona observabilidad en tiempo real.
+- **Inconsistencias en el inventario**: Actualizaciones desincronizadas que generan discrepancias en los registros
+- **Falta de trazabilidad**: Sin auditoría clara de transacciones
+- **Seguridad deficiente**: Ausencia de controles robustos para proteger información sensible
+- **Pérdidas económicas**: Pedidos erróneos debido a datos incorrectos
 
-## 🎯 Diagrama de la Solución
+### Solución Propuesta: Infraestructura como Código (IaC)
 
+Implementación de una arquitectura basada en **Linux Containers (LXC)** gestionada con **Terraform** y automatizada con **Ansible**.
 
-Nuestra solución implementa una arquitectura de **tres capas** con segmentación VLAN para máxima seguridad y rendimiento:
+#### Beneficios Clave
 
-<img width="3740" height="2183" alt="image" src="https://github.com/user-attachments/assets/704543a5-32a2-4aad-b524-40447f9c2d79" />
-
-### 📐 Decisiones de Diseño
-
-#### ¿Por qué Proxmox VE?
-- **Virtualización tipo 1** (bare-metal) con overhead mínimo (<5%)
-- **Gestión centralizada** vía WebUI y API REST completa
-- **Clustering nativo** para alta disponibilidad
-- **Backup incremental** con Proxmox Backup Server
-- **Costo:** $0 (Open Source) vs VMware vSphere (~$6,000/socket)
-
-#### ¿Por qué PostgreSQL sobre MySQL/MongoDB?
-- **ACID compliant** con transacciones distribuidas (2PC)
-- **JSON nativo** (JSONB) con indexación GIN para documentos
-- **Window functions** y CTEs recursivos para análisis complejos
-- **Replicación streaming** con WAL para DR
-- **Extensiones:** PostGIS, pg_stat_statements, TimescaleDB
-
-#### ¿Por qué Redis?
-- **Sub-milisegundo latency** para caché de sesiones
-- **Pub/Sub nativo** para eventos en tiempo real
-- **Estructuras de datos avanzadas** (Sorted Sets, HyperLogLog)
-- **Persistencia configurable** (RDB + AOF)
-
-#### ¿Por qué RabbitMQ?
-- **Garantía de entrega** (at-least-once, exactly-once)
-- **Dead Letter Queues** para manejo de errores
-- **Priorización de mensajes** y TTL configurable
-- **Federation y Shovel** para multi-datacenter
+✅ **Reproducibilidad**: Despliegue automatizado de entornos idénticos  
+✅ **Versionamiento**: Control de cambios mediante Git  
+✅ **Eficiencia de costos**: Ejecución local sin dependencia de nube pública  
+✅ **Aislamiento**: Segregación por VLANs y contenedores  
+✅ **Confiabilidad**: Sistema de colas para garantizar consistencia de datos
 
 ---
 
-## 🏛️ Componentes de la Infraestructura
+## 🏗️ Arquitectura de la Solución
 
-### Capa 1: DMZ (VLAN 10 - 10.10.0.0/24)
+### Vista General
 
-#### **Nginx Reverse Proxy** `10.10.0.2:80`
-- **Propósito:** Punto de entrada único a la infraestructura
-- **Funcionalidades:**
-  - SSL/TLS termination con certificados Let's Encrypt
-  - Load balancing round-robin con health checks
-  - Rate limiting (100 req/min por IP)
-  - Compresión gzip/brotli automática
-  - Logs estructurados a ElasticSearch
+La solución implementa una **arquitectura multinivel segmentada por VLANs**, donde cada capa tiene responsabilidades específicas y aislamiento de red.
 
-```nginx
-upstream backend {
-    least_conn;
-    server 10.20.0.2:8080 max_fails=3 fail_timeout=30s;
-    server 10.20.0.3:8080 backup;
-}
+```
+Internet → Home Router → Proxmox Server → VLANs → Contenedores LXC
 ```
 
-#### **Certificados SSL Automatizados**
-- Renovación automática vía cron job
-- Wildcard certificates para `*.local-app.net`
-- HSTS header con preload
+### Segmentación por VLANs
 
-### Capa 2: Middleware (VLAN 20 - 10.20.0.0/24)
+#### **VLAN 10 - Capa de Presentación** (`10.10.0.0/24`)
 
-#### **RabbitMQ Cluster** `10.20.0.2:5672`
-- **Propósito:** Message broker para comunicación asíncrona
-- **Configuración:**
-  - 3 nodos en HA (High Availability)
-  - Mirrored queues con auto-sync
-  - Management plugin en puerto 15672
-  - Métricas exportadas a Prometheus
+| Componente | IP | Función |
+|------------|------------|---------|
+| **Nginx Proxy** | `10.10.0.1` | Proxy inverso, terminación SSL|
+| **NAT Gateway** | `10.10.0.2` | Gateway para salida a internet |
+| **Grafana** | `10.10.0.3` | Dashboard de monitoreo y visualización |
+| **Log Sync** | `10.10.0.4` | Centralización de logs para auditoría |
 
-**Casos de Uso:**
-- Procesamiento asíncrono de órdenes
-- Notificaciones push a clientes
-- Sincronización de inventario cross-site
+**Propósito**: Punto de entrada seguro y servicios de observabilidad.
 
-### Capa 3: Data Layer (VLAN 30 - 10.30.0.0/24)
+#### **VLAN 20 - Capa de Aplicación** (`10.20.0.0/24`)
 
-#### **PostgreSQL 15+** `10.30.0.3:5432`
-- **Configuración:**
-  - Streaming replication con 1 standby
-  - Connection pooling vía PgBouncer (1000 connections)
-  - Autovacuum agresivo para OLTP
-  - Particionado por fecha en tablas de transacciones
+| Componente | IP | Función |
+|------------|------------|---------|
+| **RabbitMQ** | `10.20.0.1:8080` | Sistema de colas de mensajes |
 
-```sql
--- Ejemplo: Tabla particionada por mes
-CREATE TABLE ventas (
-    id BIGSERIAL,
-    fecha TIMESTAMPTZ NOT NULL,
-    monto NUMERIC(12,2),
-    PRIMARY KEY (id, fecha)
-) PARTITION BY RANGE (fecha);
+**Propósito**: Lógica de negocio y procesamiento asíncrono confiable.
+
+#### **VLAN 30 - Capa de Persistencia** (`10.30.0.0/22`)
+
+| Componente | IP | Función |
+|------------|------------|---------|
+| **PostgreSQL** | `10.30.0.3` | Base de datos relacional principal |
+| **cron-job** | `10.30.0.2:3412` | Gestor de trabajos programados |
+| **Redis** | `10.30.0.1:3375` | Sistema de caché en memoria |
+| **NTFS Storage** | - | Almacenamiento persistente de 1TB |
+
+**Propósito**: Almacenamiento y persistencia de datos críticos.
+
+#### **VLAN 40 - Red de Gestión** (`10.40.0.0/24`)
+
+| Componente | IP | Función |
+|------------|------------|---------|
+| **NAT Instance** | `10.40.0.1` | Control de acceso a internet |
+| **iptables/nftables** | - | Firewall y reglas de seguridad |
+
+**Propósito**: Aislamiento y control de acceso seguro a internet.
+
+### Flujo de Datos y Seguridad
+
+```
+Cliente → DNS (local-app.net) → Nginx Proxy (10.10.0.1)
+                                      ↓
+                                RabbitMQ (VLAN 20)
+                                      ↓
+                            Procesamiento Asíncrono
+                                      ↓
+                                PostgreSQL (VLAN 30)
 ```
 
-#### **Redis Cluster** `10.30.0.2:6379`
-- **Configuración:**
-  - 3 masters + 3 replicas (sharding automático)
-  - Persistencia RDB cada 5min + AOF
-  - Maxmemory policy: allkeys-lru
-  - Sentinel para failover automático
-
-**Casos de Uso:**
-- Caché de consultas frecuentes (TTL: 5min)
-- Sesiones de usuario (TTL: 30min)
-- Ranking en tiempo real (Sorted Sets)
-- Rate limiting distribuido
+**Principios de Seguridad Aplicados**:
+- Defensa en profundidad (múltiples capas)
+- Principio de mínimo privilegio
+- Segregación de red
+- Cifrado en tránsito
 
 ---
 
-## 🛠️ Stack Tecnológico
+## 🗂️ Estructura del Proyecto
 
-| Componente | Versión | Propósito | Justificación |
-|------------|---------|-----------|---------------|
-| **Proxmox VE** | 8.1+ | Hypervisor Tipo 1 | Virtualización bare-metal, clustering nativo |
-| **PostgreSQL** | 15.4+ | Base de datos transaccional | ACID, JSON nativo, extensibilidad |
-| **Redis** | 7.2+ | Caché + Message Broker | Latencia sub-ms, estructuras avanzadas |
-| **RabbitMQ** | 3.12+ | Message Queue | Garantía de entrega, DLQ, federation |
-| **Nginx** | 1.24+ | Reverse Proxy + LB | Alto rendimiento, SSL offloading |
-| **Harbor** | 2.9+ | Container Registry | Gestión privada de imágenes Docker |
-| **Grafana** | 10.2+ | Observabilidad | Dashboards + alerting |
-| **Prometheus** | 2.48+ | Métricas | Time-series DB, service discovery |
-| **Terraform** | 1.6+ | Provisioning IaC | Multi-provider, state management |
-| **Ansible** | 2.16+ | Configuration Management | Idempotencia, playbooks reusables |
-
----
-
-## ✨ Características Clave
-
-### 🚀 Rendimiento
-- **Latencia ultra-baja:** < 5ms promedio en LAN (99 percentil: 12ms)
-- **Throughput:** 10,000 transacciones/segundo sostenidas
-- **Sin dependencia de Internet:** 100% operación en red local
-
-### 🔒 Seguridad
-- **Segmentación VLAN:** Aislamiento L2 entre capas
-- **Firewall distribuido:** nftables con políticas por VLAN
-- **Secrets management:** HashiCorp Vault integrado
-- **Audit logging:** Todos los accesos registrados en syslog
-
-### 📈 Escalabilidad
-- **Horizontal:** Agregar nodos al cluster sin downtime
-- **Vertical:** Hot-add CPU/RAM en VMs
-- **Auto-scaling:** Basado en métricas de Prometheus
-
-### 🔍 Observabilidad
-- **Dashboards en tiempo real:** Grafana con refresh cada 5s
-- **Alertas proactivas:** PagerDuty integration
-- **Log aggregation:** Loki + Promtail
-- **Distributed tracing:** Jaeger para microservicios
-
-### 🔄 Automatización Total
-- **Provisioning:** Terraform despliega toda la infra en 8 minutos
-- **Configuration:** Ansible configura servicios en 3 minutos
-- **CI/CD:** GitLab Runner para despliegues continuos
-- **Backups:** Snapshots incrementales cada hora
-
----
-
-## 🚀 Infraestructura como Código
-
-### Terraform: Provisioning Declarativo
-
-```hcl
-# modules/proxmox-vm/main.tf
-resource "proxmox_vm_qemu" "postgres_master" {
-  name        = "postgres-master"
-  target_node = "proxmox-node1"
-  
-  cores    = 4
-  memory   = 8192
-  balloon  = 4096
-  
-  network {
-    model  = "virtio"
-    bridge = "vmbr30"  # VLAN 30
-    tag    = 30
-  }
-  
-  disk {
-    type    = "scsi"
-    storage = "local-lvm"
-    size    = "100G"
-    ssd     = 1
-  }
-  
-  lifecycle {
-    ignore_changes = [network]
-  }
-}
+```
+bravo-sac-infrastructure/
+├── app/                      # Código de aplicación (futuro)
+├── config/                   # Configuración de Ansible
+│   ├── ansible.cfg           # Configuración principal de Ansible
+│   ├── inventory.ini         # Inventario de hosts
+│   └── group_vars/           # Variables por grupo
+│       ├── all.yml           # Variables globales
+│       └── via_proxy.yml     # Configuración de proxy SSH
+│
+├── iac/                      # Infraestructura como Código (Terraform)
+│   ├── main.tf               # Configuración del provider Proxmox
+│   ├── variables.tf          # Definición de variables
+│   ├── credenciales.auto.tfvars  # Credenciales (NO versionar)
+│   ├── vlans.tf              # Definición de VLANs
+│   ├── proxy.tf              # Contenedor Nginx Proxy
+│   ├── natgateway.tf         # Contenedor NAT Gateway
+│   ├── grafana.tf            # Contenedor Grafana
+│   └── logsync.tf            # Contenedor Log Sync
+│
+├── docs/                     # Documentación
+│   ├── diagrams/             # Diagramas de arquitectura
+│   └── guides/               # Guías de configuración
+│
+├── .gitignore                # Archivos excluidos de Git
+└── README.md                 # Este documento
 ```
 
-### Ansible: Gestión de Configuración
+---
+### Software
 
-```yaml
-# playbooks/deploy-postgres.yml
-- name: Deploy PostgreSQL Master
-  hosts: postgres_master
-  become: yes
-  roles:
-    - postgresql
-    - pgbouncer
-    - prometheus-exporter
-  
-  vars:
-    postgres_version: 15
-    max_connections: 1000
-    shared_buffers: "2GB"
-    effective_cache_size: "6GB"
-    maintenance_work_mem: "512MB"
-    checkpoint_completion_target: 0.9
-    wal_level: replica
-    max_wal_senders: 3
-```
+| Herramienta | Versión | Propósito |
+|-------------|---------|-----------|
+| **Terraform** | ≥ 1.5.0 | Provisión de infraestructura |
+| **Ansible** | ≥ 2.14 | Automatización de configuración |
+| **Proxmox VE** | ≥ 7.0 | Virtualización |
+| **SSH** | OpenSSH 8+ | Acceso remoto |
 
-### Pipeline de Despliegue
+### Templates Requeridos
 
+En Proxmox, debe existir:
 ```bash
-# deploy.sh - Despliegue completo en 1 comando
-#!/bin/bash
-set -euo pipefail
+local:vztmpl/devuan-5.0-standard_5.0_amd64.tar.gz
+```
 
-echo "🚀 Iniciando despliegue de infraestructura..."
+Descargar template:
+```bash
+pveam download local devuan-5.0-standard_5.0_amd64.tar.gz
+```
 
-# 1. Validar Terraform
-cd terraform/
-terraform validate
+### Claves SSH
 
-# 2. Provisionar VMs
-terraform apply -auto-approve
-
-# 3. Esperar boot de VMs (30s)
-sleep 30
-
-# 4. Configurar servicios con Ansible
-cd ../ansible/
-ansible-playbook -i inventory/production site.yml
-
-# 5. Health checks
-./scripts/health-check.sh
-
-echo "✅ Infraestructura desplegada exitosamente"
-echo "📊 Dashboard: https://local-dashboard.net"
+Generar par de claves para Ansible:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/ansible -C "ansible@bravo-sac"
 ```
 
 ---
 
-## 📁 Estructura del Proyecto
-
-```
-infrastructure-upao/
-├── terraform/
-│   ├── main.tf                    # Configuración principal
-│   ├── variables.tf               # Variables de entorno
-│   ├── outputs.tf                 # Outputs (IPs, URLs)
-│   ├── modules/
-│   │   ├── proxmox-vm/            # Módulo para VMs
-│   │   ├── network/               # VLANs y bridges
-│   │   └── storage/               # Volúmenes y backups
-│   └── environments/
-│       ├── dev/
-│       ├── staging/
-│       └── production/
-│
-├── ansible/
-│   ├── ansible.cfg
-│   ├── site.yml                   # Playbook principal
-│   ├── inventory/
-│   │   ├── production/
-│   │   │   ├── hosts.yml
-│   │   │   └── group_vars/
-│   │   └── staging/
-│   ├── roles/
-│   │   ├── common/                # Configuración base
-│   │   ├── nginx/
-│   │   ├── postgresql/
-│   │   ├── redis/
-│   │   ├── rabbitmq/
-│   │   └── monitoring/
-│   └── playbooks/
-│       ├── deploy-app.yml
-│       ├── backup.yml
-│       └── disaster-recovery.yml
-│
-├── monitoring/
-│   ├── grafana/
-│   │   ├── dashboards/
-│   │   │   ├── infrastructure.json
-│   │   │   ├── database.json
-│   │   │   └── application.json
-│   │   └── datasources/
-│   ├── prometheus/
-│   │   ├── prometheus.yml
-│   │   ├── alerts/
-│   │   └── rules/
-│   └── loki/
-│       └── loki-config.yml
-│
-├── scripts/
-│   ├── deploy.sh                  # Despliegue automatizado
-│   ├── destroy.sh                 # Destrucción del entorno
-│   ├── backup.sh                  # Backup manual
-│   ├── restore.sh                 # Restauración desde backup
-│   └── health-check.sh            # Verificación de salud
-│
-├── docs/
-│   ├── architecture.md            # Documentación de arquitectura
-│   ├── runbook.md                 # Guía de operaciones
-│   ├── disaster-recovery.md       # Plan de DR
-│   └── network-topology.md        # Topología de red
-│
-├── .github/
-│   └── workflows/
-│       ├── terraform-validate.yml
-│       └── ansible-lint.yml
-│
-├── .gitignore
-├── README.md
-└── LICENSE
-```
-
----
-
-## 🎯 Guía de Instalación
-
-### Pre-requisitos
-
-- **Proxmox VE 8.1+** instalado y configurado
-- **Terraform CLI** v1.6+
-- **Ansible** v2.16+
-- **Git** para clonar el repositorio
-- **SSH access** al servidor Proxmox
+## 🚀 Instalación y Despliegue
 
 ### Paso 1: Clonar el Repositorio
 
 ```bash
-git clone https://github.com/grupo5-upao/infrastructure-upao.git
-cd infrastructure-upao
+git clone https://github.com/tu-organizacion/bravo-sac-infrastructure.git
+cd bravo-sac-infrastructure
 ```
 
-### Paso 2: Configurar Variables de Entorno
+### Paso 2: Configurar Credenciales
 
-```bash
-# Copiar template de variables
-cp terraform/environments/production/terraform.tfvars.example \
-   terraform/environments/production/terraform.tfvars
-
-# Editar con tus credenciales
-nano terraform/environments/production/terraform.tfvars
-```
+Crear archivo `iac/credenciales.auto.tfvars`:
 
 ```hcl
-# terraform.tfvars
-proxmox_api_url  = "https://192.168.0.150:8006/api2/json"
-proxmox_api_token_id = "terraform@pam!token"
-proxmox_api_token_secret = "tu-token-secreto"
-
-vlan10_network = "10.10.0.0/24"
-vlan20_network = "10.20.0.0/24"
-vlan30_network = "10.30.0.0/24"
-
-postgres_password = "cambiar-en-produccion"
-redis_password = "cambiar-en-produccion"
-rabbitmq_password = "cambiar-en-produccion"
+proxmox_api_url   = "https://192.168.0.201:8006/"
+proxmox_api_token = "root@pam!terraform=TU_TOKEN_AQUI"
+ansible_pub_key   = "ssh-ed25519 AAAAC3Nza... ansible@bravo-sac"
 ```
 
-### Paso 3: Inicializar Terraform
+**⚠️ IMPORTANTE**: Este archivo contiene credenciales sensibles. Ya está incluido en `.gitignore`.
+
+### Paso 3: Crear Token de API en Proxmox
 
 ```bash
-cd terraform/
+# En el servidor Proxmox
+pveum user token add root@pam terraform --privsep=0
+```
+
+### Paso 4: Inicializar Terraform
+
+```bash
+cd iac/
 terraform init
+```
 
-# Validar configuración
+### Paso 5: Validar Configuración
+
+```bash
 terraform validate
-
-# Ver plan de ejecución
-terraform plan -out=tfplan
+terraform plan
 ```
 
-### Paso 4: Provisionar Infraestructura
+### Paso 6: Desplegar Infraestructura
 
 ```bash
-# Aplicar cambios (toma ~8 minutos)
-terraform apply tfplan
-
-# Guardar outputs
-terraform output -json > ../ansible/inventory/terraform-outputs.json
+terraform apply
 ```
 
-### Paso 5: Configurar Servicios con Ansible
+Confirmar con `yes` cuando se solicite.
+
+**Tiempo estimado**: 5-10 minutos
+
+### Paso 7: Verificar Contenedores
 
 ```bash
-cd ../ansible/
-
-# Verificar conectividad
-ansible all -i inventory/production -m ping
-
-# Desplegar toda la configuración
-ansible-playbook -i inventory/production site.yml
-
-# O desplegar por roles específicos
-ansible-playbook -i inventory/production playbooks/deploy-postgres.yml
-ansible-playbook -i inventory/production playbooks/deploy-nginx.yml
+# En el servidor Proxmox
+pct list
 ```
 
-### Paso 6: Verificar Despliegue
-
-```bash
-# Ejecutar health checks
-./scripts/health-check.sh
-
-# Verificar servicios
-ansible all -i inventory/production -m shell -a "systemctl status postgresql"
-ansible all -i inventory/production -m shell -a "systemctl status redis"
+Salida esperada:
+```
+VMID       Status     Lock         Name
+701        running                 proxy
+702        running                 grafana
+703        running                 logsynch
+704        running                 nat-gateway
 ```
 
-### Paso 7: Acceder a los Dashboards
+### Paso 8: Configurar Ansible
 
-```bash
-# Configurar DNS local o editar /etc/hosts
-echo "10.10.0.2 local-app.net local-dashboard.net" | sudo tee -a /etc/hosts
-
-# Acceder:
-# - Aplicación: https://local-app.net
-# - Grafana: https://local-dashboard.net
-# - Proxmox: https://192.168.0.150:8006
-# - Harbor: https://192.168.0.150 (Registry privado)
-```
-
----
-
-## 📊 Monitoreo y Observabilidad
-
-### Dashboards de Grafana
-
-#### 1. Infrastructure Overview
-![Infrastructure Dashboard](docs/images/dashboard-infra.png)
-
-**Métricas clave:**
-- CPU/RAM/Disk por VM
-- Network throughput por VLAN
-- VM uptime y disponibilidad
-- Storage IOPS y latencia
-
-#### 2. Database Performance
-![Database Dashboard](docs/images/dashboard-db.png)
-
-**Métricas clave:**
-- Queries/segundo (SELECT, INSERT, UPDATE)
-- Connection pool utilization
-- Cache hit ratio (>95% target)
-- Replication lag (<100ms target)
-- Table bloat y vacuum activity
-
-#### 3. Application Metrics
-![Application Dashboard](docs/images/dashboard-app.png)
-
-**Métricas clave:**
-- Request rate y latencia (p50, p95, p99)
-- Error rate (<0.1% target)
-- Active sessions
-- Queue depth (RabbitMQ)
-
-### Sistema de Alertas
+Editar `config/group_vars/all.yml`:
 
 ```yaml
-# prometheus/alerts/critical.yml
-groups:
-  - name: critical
-    interval: 30s
-    rules:
-      - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Error rate >5% en {{ $labels.instance }}"
-          
-      - alert: DatabaseDown
-        expr: up{job="postgres"} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "PostgreSQL down en {{ $labels.instance }}"
-          
-      - alert: DiskSpaceLow
-        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Disco <10% libre en {{ $labels.instance }}"
+ansible_user: root
+ansible_ssh_private_key_file: ~/.ssh/ansible
+ansible_ssh_common_args: '-o ProxyJump=root@192.168.0.222'
 ```
 
-### Canales de Notificación
-- **Email:** Alertas críticas al equipo de operaciones
-- **Slack:** Notificaciones en tiempo real al canal #infrastructure
-- **PagerDuty:** Escalamiento automático 24/7
+### Paso 9: Ejecutar Playbooks de Ansible
 
----
-
-## 👥 Equipo del Proyecto
-
-**Universidad:** Universidad Privada Antenor Orrego (UPAO)  
-**Curso:** Infraestructura como Código  
-**Grupo:** 5  
-**Periodo:** 2024-II
-
-### Integrantes
-
-| Nombre | Rol | Responsabilidades |
-|--------|-----|-------------------|
-| **ALCANTARA RODRIGUEZ, PIERO** | DevOps Lead | Terraform modules, CI/CD pipeline |
-| **BAUTISTA REYES, LOURDES** | Database Engineer | PostgreSQL tuning, replication setup |
-| **DAVALOS ALFARO, MARISELLA** | Network Architect | VLAN design, firewall rules |
-| **LEYVA VALQUI, GABRIEL** | Monitoring Specialist | Grafana dashboards, alerting |
-| **RODRIGUEZ GONZALES, ALEJANDRO** | Systems Engineer | Ansible playbooks, automation |
-
----
-
-## 🗺️ Roadmap
-
-### ✅ Fase 1: Foundation (Completado)
-- [x] Diseño de arquitectura de 3 capas
-- [x] Provisioning automatizado con Terraform
-- [x] Configuration management con Ansible
-- [x] Monitoreo básico con Grafana + Prometheus
-
-### 🚧 Fase 2: Resilience (En Progreso)
-- [ ] Backup automatizado cada 6 horas a storage NFS
-- [ ] Disaster Recovery con sitio secundario
-- [ ] Chaos Engineering con Gremlin
-- [ ] Automated failover testing
-
-### 🔮 Fase 3: Advanced Features (Planeado - Q1 2025)
-- [ ] Multi-site replication (Trujillo ↔ Lima)
-- [ ] Kubernetes para microservicios
-- [ ] Service Mesh con Istio
-- [ ] Machine Learning para capacity planning
-
-### 🌟 Fase 4: Cloud Hybrid (Planeado - Q2 2025)
-- [ ] Hybrid cloud con AWS VPN
-- [ ] Cold storage en S3 Glacier
-- [ ] CloudWatch integration
-- [ ] Multi-cloud DR strategy
-
----
-
-## 🛡️ Seguridad
-
-### Controles Implementados
-
-✅ **Network Security**
-- Segmentación VLAN con ACLs estrictas
-- Firewall stateful (nftables) en cada VM
-- IDS/IPS con Suricata
-- VPN WireGuard para acceso remoto
-
-✅ **Application Security**
-- WAF con ModSecurity en Nginx
-- Rate limiting: 100 req/min por IP
-- SQL injection prevention (prepared statements)
-- XSS protection headers
-
-✅ **Data Security**
-- Encryption at rest (LUKS para volúmenes)
-- Encryption in transit (TLS 1.3 only)
-- Secrets management con Vault
-- Database audit logging
-
-✅ **Access Control**
-- RBAC con roles granulares
-- MFA obligatorio para Proxmox
-- SSH key-based auth (password disabled)
-- Principle of least privilege
-
-### Compliance
-- **GDPR:** Anonimización de datos personales
-- **ISO 27001:** Controles de seguridad documentados
-- **CIS Benchmarks:** Hardening según estándares
-
----
-
-## ❓ Problemas Conocidos y Soluciones
-
-### 1. Alta latencia intermitente en Redis
-
-**Síntoma:** Picos de latencia >50ms cada ~10 minutos
-
-**Causa Raíz:** Redis persistence (RDB save) bloqueando el hilo principal
-
-**Solución:**
 ```bash
-# Ajustar política de persistencia
-redis-cli CONFIG SET save "900 1 300 10"
-redis-cli CONFIG SET stop-writes-on-bgsave-error no
-```
-
-**Alternativa:** Usar Redis Enterprise con persistencia asíncrona
-
----
-
-### 2. Postgres connection pool exhausted
-
-**Síntoma:** Error "sorry, too many clients already"
-
-**Causa Raíz:** Application no cierra conexiones correctamente
-
-**Solución:**
-```ini
-# /etc/pgbouncer/pgbouncer.ini
-[databases]
-app_db = host=10.30.0.3 port=5432 dbname=app pool_size=50
-
-[pgbouncer]
-max_client_conn = 1000
-default_pool_size = 25
-reserve_pool_size = 5
-reserve_pool_timeout = 3
+cd ../config/
+ansible-playbook -i inventory.ini playbooks/initial_setup.yml
 ```
 
 ---
 
-### 3. RabbitMQ memory alarm triggered
+## 🌐 Configuración de Red
 
-**Síntoma:** Producers bloqueados, consumers no procesan mensajes
+### Topología de Red
 
-**Causa Raíz:** Acumulación de mensajes sin consumir
+```
+192.168.0.0/24 (Red LAN)
+    ├── 192.168.0.1    → Home Router (Gateway)
+    ├── 192.168.0.201  → Proxmox Host
+    ├── 192.168.0.220  → NAT Gateway (eth0)
+    └── 192.168.0.222  → Proxy (eth0)
 
-**Solución:**
+10.10.0.0/24 (VLAN 10)
+    ├── 10.10.0.1      → Proxy (eth1)
+    ├── 10.10.0.2      → NAT Gateway (eth1)
+    ├── 10.10.0.3      → Grafana
+    └── 10.10.0.4      → Log Sync
+
+10.40.0.0/24 (VLAN 40)
+    └── 10.40.0.1      → NAT Gateway (eth2)
+```
+
+### Configuración del NAT Gateway
+
+El contenedor `nat-gateway` actúa como router entre las VLANs y la red pública.
+
+**Configuración de iptables** (dentro del contenedor):
+
 ```bash
-# Aumentar límite de memoria
-rabbitmqctl set_vm_memory_high_watermark 0.6
+# Habilitar IP forwarding
+sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 
-# Configurar TTL en colas
-rabbitmqctl set_policy TTL ".*" '{"message-ttl":3600000}' --apply-to queues
+# Reglas NAT
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT
+iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Persistir reglas
+iptables-save > /etc/iptables/rules.v4
 ```
 
-**Prevención:** Implementar backpressure en producers
+### Configuración del Proxy Inverso (Nginx)
 
----
+El contenedor `proxy` expone servicios de forma segura.
 
-### 4. Terraform state lock timeout
+**Ejemplo de configuración** (`/etc/nginx/sites-available/default`):
 
-**Síntoma:** `Error acquiring state lock` al ejecutar `terraform apply`
+```nginx
+server {
+    listen 80;
+    server_name local-app.net;
 
-**Causa Raíz:** Ejecución previa interrumpida sin liberar lock
+    location / {
+        proxy_pass http://10.20.0.2:3472;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
 
-**Solución:**
-```bash
-# Force-unlock (usar con precaución)
-terraform force-unlock <LOCK_ID>
+    location /rabbitmq/ {
+        proxy_pass http://10.20.0.1:8080/;
+    }
 
-# Alternativa: Migrar a backend remoto
-terraform {
-  backend "consul" {
-    address = "10.20.0.4:8500"
-    path    = "terraform/state"
-    lock    = true
-  }
+    location /grafana/ {
+        proxy_pass http://10.10.0.3:3000/;
+    }
 }
 ```
 
----
+### DNS Local
 
-## 📜 Licencia
-
-Este proyecto es software libre bajo **GNU GPLv3**. Ver archivo [LICENSE](LICENSE) para más detalles.
+Agregar entradas en el router o en `/etc/hosts` de los clientes:
 
 ```
-Copyright (C) 2024 - Grupo 5 UPAO
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License.
+192.168.0.222  local-app.net
+192.168.0.222  local-dashboard.net
 ```
 
 ---
 
-## 📞 Contacto y Soporte
+## 📦 Gestión de Contenedores
 
-**Universidad:** [www.upao.edu.pe](https://www.upao.edu.pe)  
-**Repositorio:** [github.com/grupo5-upao/infrastructure-upao](https://github.com/grupo5-upao/infrastructure-upao)  
-**Issues:** [github.com/grupo5-upao/infrastructure-upao/issues](https://github.com/grupo5-upao/infrastructure-upao/issues)  
+### Comandos Útiles de Proxmox
+
+```bash
+# Listar contenedores
+pct list
+
+# Iniciar contenedor
+pct start 701
+
+# Detener contenedor
+pct stop 701
+
+# Reiniciar contenedor
+pct reboot 701
+
+# Acceder a la consola
+pct enter 701
+
+# Ver logs
+pct exec 701 -- journalctl -u nginx -f
+
+# Snapshot (respaldo)
+pct snapshot 701 backup-$(date +%Y%m%d)
+
+# Restaurar snapshot
+pct rollback 701 backup-20250101
+```
+
+### Acceso SSH
+
+```bash
+# Via proxy jump
+ssh -J root@192.168.0.222 root@10.10.0.3
+
+# Directo al proxy
+ssh root@192.168.0.222
+```
+
+### Actualizar Contenedores
+
+```bash
+# Desde Ansible
+ansible-playbook -i config/inventory.ini playbooks/update_all.yml
+
+# Manual en cada contenedor
+pct enter 701
+apt update && apt upgrade -y
+```
 
 ---
 
-<div align="center">
+## 🔒 Seguridad
 
-**⭐ Si este proyecto te fue útil, considera darle una estrella ⭐**
+### Firewall de Proxmox Host
+
+```bash
+# Habilitar firewall en el nodo
+pvesh set /nodes/proxmox/firewall/options -enable 1
+
+# Permitir SSH
+pvesh create /cluster/firewall/rules --type in --action ACCEPT --proto tcp --dport 22
+
+# Permitir API de Proxmox
+pvesh create /cluster/firewall/rules --type in --action ACCEPT --proto tcp --dport 8006
+
+# Aplicar cambios
+pvesh set /nodes/proxmox/firewall/options -enable 1
+```
+
+### Hardening de Contenedores
+
+#### Deshabilitar Root Login por SSH
+
+```bash
+# En cada contenedor
+sed -i 's/PermitRootLogin yes/PermitRootLogin without-password/' /etc/ssh/sshd_config
+systemctl restart sshd
+```
+
+#### Configurar Fail2Ban
+
+```bash
+apt install fail2ban -y
+systemctl enable fail2ban
+systemctl start fail2ban
+```
+
+#### Limitar Acceso con iptables
+
+```bash
+# Ejemplo: Solo permitir SSH desde la red 192.168.0.0/24
+iptables -A INPUT -p tcp --dport 22 -s 192.168.0.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 22 -j DROP
+```
+
+### Rotación de Credenciales
+
+**Cambiar token de Proxmox**:
+```bash
+pveum user token remove root@pam terraform
+pveum user token add root@pam terraform --privsep=0
+```
+
+Actualizar `iac/credenciales.auto.tfvars` y ejecutar:
+```bash
+terraform apply -var-file=credenciales.auto.tfvars
+```
 
 ---
 
-Hecho con ❤️ por el Grupo 5 | UPAO 2024
+## 📊 Monitoreo y Logs
 
-</div>
+### Grafana Dashboard
+
+Acceder a: `http://192.168.0.222/grafana/`
+
+**Credenciales predeterminadas**:
+- Usuario: `admin`
+- Contraseña: `admin` (cambiar al primer acceso)
+
+### Centralización de Logs
+
+El contenedor `logsynch` (10.10.0.4) recibe logs de todos los servicios.
+
+**Enviar logs con rsyslog**:
+
+```bash
+# En cada contenedor (ejemplo: proxy)
+echo "*.* @@10.10.0.4:514" >> /etc/rsyslog.conf
+systemctl restart rsyslog
+```
+
+### Consultar Logs
+
+```bash
+# Logs del sistema en logsynch
+pct enter 703
+tail -f /var/log/syslog
+
+# Logs de Nginx
+pct exec 701 -- tail -f /var/log/nginx/access.log
+
+# Logs de RabbitMQ
+# (Desde la interfaz web o archivos)
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Problema: Contenedor no inicia
+
+**Síntomas**: `pct list` muestra status `stopped`
+
+**Solución**:
+```bash
+# Ver logs del contenedor
+pct status 701 --verbose
+journalctl -xe | grep pve
+
+# Intentar iniciar manualmente
+pct start 701
+
+# Si falla por falta de recursos
+pvesh get /nodes/proxmox/status
+```
+
+### Problema: No hay conectividad entre VLANs
+
+**Síntomas**: Ping entre contenedores falla
+
+**Diagnóstico**:
+```bash
+# Verificar interfaces en Proxmox
+ip a | grep vmbr0
+
+# Verificar configuración de VLANs
+cat /etc/network/interfaces
+
+# Verificar forwarding en NAT Gateway
+pct exec 704 -- sysctl net.ipv4.ip_forward
+```
+
+**Solución**:
+```bash
+# Reiniciar networking en Proxmox
+systemctl restart networking
+
+# Verificar reglas de iptables en NAT Gateway
+pct exec 704 -- iptables -L -n -v
+```
+
+### Problema: Terraform falla al aplicar
+
+**Síntomas**: Error de autenticación o timeout
+
+**Solución**:
+```bash
+# Verificar conectividad
+curl -k https://192.168.0.201:8006/
+
+# Verificar token
+pveum user token list root@pam
+
+# Regenerar token si es necesario
+pveum user token add root@pam terraform --privsep=0
+
+# Limpiar estado de Terraform
+terraform refresh
+terraform plan
+```
+
+### Problema: SSH no funciona via ProxyJump
+
+**Síntomas**: `ssh: connect to host 10.10.0.3 port 22: No route to host`
+
+**Solución**:
+```bash
+# Verificar que proxy esté corriendo
+pct status 701
+
+# Verificar conectividad desde el proxy
+pct exec 701 -- ping -c 3 10.10.0.3
+
+# Verificar configuración SSH
+cat ~/.ssh/config
+
+# Debe contener:
+Host proxy
+  HostName 192.168.0.222
+  User root
+  IdentityFile ~/.ssh/ansible
+
+Host grafana
+  HostName 10.10.0.3
+  User root
+  ProxyJump proxy
+  IdentityFile ~/.ssh/ansible
+```
+
+---
+
+## 🛠️ Mantenimiento
+
+### Respaldos
+
+#### Backup de Configuración
+
+```bash
+# Backup de Terraform state
+cd iac/
+terraform state pull > terraform.tfstate.backup-$(date +%Y%m%d)
+
+# Backup de configuración Ansible
+tar -czf ansible-config-$(date +%Y%m%d).tar.gz config/
+```
+
+#### Backup de Contenedores
+
+```bash
+# Snapshot de contenedor
+pct snapshot 701 "backup-$(date +%Y%m%d-%H%M)"
+
+# Backup completo (dump)
+vzdump 701 --dumpdir /var/lib/vz/dump --mode snapshot
+
+# Backup automatizado (agregar a cron)
+0 2 * * 0 vzdump 701 702 703 704 --dumpdir /var/lib/vz/dump --mode snapshot
+```
+
+### Actualizaciones
+
+#### Actualizar Templates de LXC
+
+```bash
+pveam update
+pveam available --section system
+pveam download local devuan-5.0-standard_5.0_amd64.tar.gz
+```
+
+#### Actualizar Proxmox
+
+```bash
+apt update
+apt dist-upgrade
+pve7to8 --check  # Si migras de v7 a v8
+```
+
+#### Actualizar Terraform Provider
+
+```bash
+cd iac/
+terraform init -upgrade
+terraform plan
+terraform apply
+```
+
+### Escalado
+
+#### Añadir nuevo contenedor
+
+1. Crear archivo `iac/nuevo_servicio.tf`:
+
+```hcl
+resource "proxmox_virtual_environment_container" "nuevo_servicio" {
+  vm_id     = 705
+  node_name = "proxmox"
+  
+  initialization {
+    hostname = "nuevo-servicio"
+    
+    ip_config {
+      ipv4 {
+        address = "10.20.0.5/24"
+        gateway = "10.10.0.2"
+      }
+    }
+    
+    user_account {
+      keys = [var.ansible_pub_key]
+    }
+  }
+  
+  operating_system {
+    type             = "alpine"
+    template_file_id = "local:vztmpl/devuan-5.0-standard_5.0_amd64.tar.gz"
+  }
+  
+  cpu { cores = 2 }
+  memory { dedicated = 1024 }
+  
+  network_interface {
+    name    = "eth0"
+    bridge  = "vmbr0"
+    vlan_id = 20
+  }
+  
+  disk {
+    datastore_id = "local-lvm"
+    size         = 16
+  }
+  
+  unprivileged = false
+}
+```
+
+2. Aplicar cambios:
+```bash
+terraform apply
+```
+
+3. Añadir al inventario de Ansible:
+```ini
+[nuevo_servicio_group]
+nuevo_servicio ansible_host=10.20.0.5
+```
+
+---
+
+## 📄 Licencia
+
+Este proyecto es propiedad de **Bravo SAC** y está protegido bajo licencia propietaria.
+
+---
+
+**Última actualización**: Octubre 2025  
+**Versión**: 1.0.0  
+**Autor**: Equipo de DevOps - Bravo SAC
